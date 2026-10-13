@@ -560,25 +560,39 @@ function applySnapshot(snap) {
 }
 
 // ============================================================
-// SSE + FALLBACK
+// SSE + FALLBACK POLLING (VERCEL SERVERLESS COMPATIBLE)
 // ============================================================
 
 let sse = null;
 let fallbackTimer = null;
+let consecutiveErrors = 0;
 
 function setFeed(ok, text) {
   els.led.className = "led " + (ok ? "ok" : "err");
   els.feedText.textContent = text;
 }
 
+async function fetchSnapshot() {
+  try {
+    const res = await fetch("/api/snapshot");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    consecutiveErrors = 0;
+    applySnapshot(data);
+    return true;
+  } catch (err) {
+    consecutiveErrors++;
+    if (consecutiveErrors >= 2) {
+      setFeed(false, "KONEKSI TERPUTUS");
+    }
+    return false;
+  }
+}
+
 function startFallbackPolling() {
   if (fallbackTimer) return;
-  fallbackTimer = setInterval(async () => {
-    try {
-      const res = await fetch("/api/snapshot");
-      applySnapshot(await res.json());
-    } catch { setFeed(false, "KONEKSI TERPUTUS"); }
-  }, 3000);
+  fetchSnapshot();
+  fallbackTimer = setInterval(fetchSnapshot, 3500);
 }
 
 function stopFallbackPolling() {
@@ -589,15 +603,36 @@ function connectSSE() {
   try { sse = new EventSource("/api/stream"); }
   catch { startFallbackPolling(); return; }
 
-  sse.onopen    = () => { stopFallbackPolling(); setFeed(true, "LIVE"); };
-  sse.onmessage = (ev) => { try { applySnapshot(JSON.parse(ev.data)); } catch {} };
-  sse.onerror   = () => {
-    setFeed(false, "RECONNECT…");
-    sse.close();
+  sse.onopen = () => {
+    consecutiveErrors = 0;
+    setFeed(true, "LIVE");
+  };
+
+  sse.onmessage = (ev) => {
+    try {
+      const snap = JSON.parse(ev.data);
+      consecutiveErrors = 0;
+      applySnapshot(snap);
+    } catch {}
+  };
+
+  sse.onerror = () => {
+    // On Vercel, serverless streams end after a few seconds.
+    // Gracefully fallback to polling immediately without showing scary error.
+    if (sse) {
+      sse.close();
+      sse = null;
+    }
     startFallbackPolling();
-    setTimeout(connectSSE, 4000);
+    setTimeout(connectSSE, 6000);
   };
 }
 
+// 1. Ambil data instan pertama kali (0ms delay)
+fetchSnapshot();
+
+// 2. Aktifkan koneksi realtime
 connectSSE();
-els.sbClients.textContent = "SSE AKTIF";
+
+els.sbClients.textContent = "VERCEL · REALTIME AKTIF";
+

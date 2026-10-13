@@ -1,0 +1,14 @@
+{
+  "name": "realtime-inverter-data",
+  "version": "1.0.0",
+  "description": "PLTS Inverter Realtime Monitoring Dashboard",
+  "main": "server.cjs",
+  "scripts": {
+    "start": "node server.cjs",
+    "live": "node server.cjs --live",
+    "simulate": "node server.cjs --simulate"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
